@@ -15,25 +15,31 @@ User (Slack)
     │  /gh-summary <PR URL>
     ▼
 Slack Platform ──────────────────────────────────────────────┐
-    │  HTTP POST (signed)                                     │
-    ▼                                                         │
+    │  HTTP POST (signed)                                    │
+    ▼                                                        │
 Vercel Serverless Function  (api/gh-summary.js)              │
-    │  1. Verify Slack signature (HMAC-SHA256)                │
-    │  2. Respond HTTP 200 immediately  ──────────────────────┘
-    │  3. Async: fetch data + summarize                  ← acknowledgement
+    │  1. Verify Slack signature (HMAC-SHA256)               │
+    │  2. Respond HTTP 200 immediately  ─────────────────────┘
+    │  3. Async: fetch data + summarize        ← acknowledgement
     │
-    ├──► GitHub REST API
-    │       • GET /pulls/:number          (PR metadata)
-    │       • GET /issues/:number/comments (discussion)
-    │       • GET /pulls/:number/reviews   (code reviews)
-    │       • GET /commits/:sha/check-runs (CI status)
+    ├──► GitHub REST API  (parallel)
+    │       • GET /pulls/:number              (PR metadata)
+    │       • GET /issues/:number/comments    (discussion)
+    │       • GET /pulls/:number/reviews      (code reviews)
+    │       • GET /pulls/:number/comments     (review comments)
+    │       • GET /pulls/:number/files        (changed files)
     │
-    └──► Anthropic Messages API
-            • claude-sonnet-4 (discussion → structured summary)
+    ├──► GitHub REST API  (sequential — needs PR head SHA)
+    │       • GET /commits/:sha/check-runs    (CI status)
+    │
+    └──► Anthropic Messages API  (after all GitHub data is ready)
+            • claude-sonnet-4-6 (discussion → structured summary)
                 │
                 ▼
          POST response_url → Slack (formatted Block Kit message)
 ```
+
+> Full diagram: [docs/architecture.svg](./docs/architecture.svg)
 
 ### Why a server at all?
 
