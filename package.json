@@ -1,0 +1,28 @@
+{
+  "name": "gh-summary-slack-bot",
+  "version": "1.0.0",
+  "description": "Slack slash command that summarizes GitHub PRs using Claude AI",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel deploy --prod",
+    "lint": "node --check api/gh-summary.js"
+  },
+  "devDependencies": {
+    "vercel": "^51.4.0"
+  },
+  "keywords": [
+    "slack",
+    "github",
+    "claude",
+    "ai",
+    "pr-review"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@vercel/functions": "^3.4.3"
+  }
+}
