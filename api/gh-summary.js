@@ -390,5 +390,6 @@ function verifySlackSignature(headers, rawBody, secret) {
     "v0=" +
     crypto.createHmac("sha256", secret).update(sigBase).digest("hex");
 
+  if (computed.length !== slackSig.length) return false;
   return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(slackSig));
 }

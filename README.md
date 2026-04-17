@@ -1,10 +1,13 @@
 # gh-summary — Slack PR Summary Bot
+> [!WARNING]
+> This is a simple POC. The code hasn't been audited and there are no warranties it will be suitable for produciton environments.
 
 A Slack slash command that fetches a GitHub PR's metadata, CI status, and discussion thread, then produces an AI-powered summary using Claude.
 
 ```
 /gh-summary https://github.com/owner/repo/pull/42
 ```
+
 
 ---
 
