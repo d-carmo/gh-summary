@@ -267,7 +267,7 @@ gh-summary/
 ## Known limitations
 
  - **Use of Vercel's free tier** — Vercel Hobby has a 30s max function duration. For large PRs, Claude can take longer than that, causing the response to never reach Slack. Set `CAPPED=true` to enforce input limits (fewer items, shorter bodies) and a 25s Claude timeout, trading summary completeness for reliability.
- - **Input caps when `CAPPED=true`** — Claude's actual context window is 200K tokens, but `CAPPED=true` limits the PR payload to keep response time within 30s: max 20 files, 10 reviews, 20 review comments, 10 issue comments, and body fields truncated to 300 chars. On a paid Vercel plan, omit `CAPPED` (or set it to `false`) to send the full data.
+ - **Input caps when `CAPPED=true`** — Claude's actual context window is 200K tokens, but `CAPPED=true` limits the PR payload to keep response time within 30s: max 20 files, 10 reviews, 20 review comments, 10 issue comments, and body fields truncated to 300 chars. On a paid Vercel plan, omit `CAPPED` (or set it to `false`) to send the full data. If doing some development or non-production testing, you may choose to use this option as  long as you don't mind a capped analysis.
 
 ---
 
