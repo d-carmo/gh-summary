@@ -165,8 +165,8 @@ npx vercel env add SLACK_SIGNING_SECRET
 npx vercel env add SLACK_BOT_TOKEN
 npx vercel env add GITHUB_TOKEN
 npx vercel env add ANTHROPIC_API_KEY
-npx vercel env add CAPPED {true | false}
-npx vercel env add MAX_TOKENS <max_token_value>
+npx vercel env add CAPPED
+npx vercel env add MAX_TOKENS
 
 # Redeploy to apply env vars
 npx vercel deploy --prod
