@@ -155,6 +155,8 @@ In the Vercel dashboard → your project → **Settings** → **Environment Vari
 | `SLACK_BOT_TOKEN` | From Step 1 |
 | `GITHUB_TOKEN` | From Step 2 |
 | `ANTHROPIC_API_KEY` | From Step 3 |
+| `CAPPED` | _(optional)_ Set to `true` on Vercel Hobby to enable input limits and stay within the 30s timeout (Free tier friendly)|
+| `MAX_TOKENS` | _(optional)_ Max tokens for Claude's response. Defaults to `1000`. Increase for longer summaries on plans with higher timeouts |
 
 Or via CLI:
 
@@ -163,6 +165,8 @@ npx vercel env add SLACK_SIGNING_SECRET
 npx vercel env add SLACK_BOT_TOKEN
 npx vercel env add GITHUB_TOKEN
 npx vercel env add ANTHROPIC_API_KEY
+npx vercel env add CAPPED {true | false}
+npx vercel env add MAX_TOKENS <max_token_value>
 
 # Redeploy to apply env vars
 npx vercel deploy --prod
@@ -262,8 +266,8 @@ gh-summary/
 
 ## Known limitations
 
- - **Use of Vercel's free tier** - by using Vercel's free tier (Hobby), we are limited with a max timeout of 30s. This can be a problem for bigger PRs. That's why we set a timeout of 25s while interacting with Claude - to ensure a response always arrives. When using it in production environments, we may want to remove this timeout.
- - **Claude max block size input** - it seems that Claude's max input size is capped at 12000. For longer PRs, and in production environments, we will want to split input data into several under-12000 blocks. This is not done here because it will also increase the response time (and I was constantly hitting the timeout with this in place).
+ - **Use of Vercel's free tier** — Vercel Hobby has a 30s max function duration. For large PRs, Claude can take longer than that, causing the response to never reach Slack. Set `CAPPED=true` to enforce input limits (fewer items, shorter bodies) and a 25s Claude timeout, trading summary completeness for reliability.
+ - **Input caps when `CAPPED=true`** — Claude's actual context window is 200K tokens, but `CAPPED=true` limits the PR payload to keep response time within 30s: max 20 files, 10 reviews, 20 review comments, 10 issue comments, and body fields truncated to 300 chars. On a paid Vercel plan, omit `CAPPED` (or set it to `false`) to send the full data.
 
 ---
 

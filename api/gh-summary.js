@@ -128,31 +128,36 @@ async function gh(path, retries = 3) {
 // ── Claude AI summary ─────────────────────────────────────────────────────────
 
 async function summarizeWithClaude(pr, files, comments, reviews, reviewComments) {
-  const aiMaxTokens = 1200;
+  const aiMaxTokens = parseInt(process.env.MAX_TOKENS, 10) || 1000;
   const errorSection = [{ title: null, text: "_Could not generate AI summary._" }];
 
-  const slim = (arr, fields) =>
-    arr.map((o) => Object.fromEntries(fields.map((f) => [f, o[f]])));
-
   const cap = (arr, n) => (arr.length > n ? arr.slice(-n) : arr);
+  const truncateBody = (o, limit = 500) =>
+    o.body ? { ...o, body: o.body.slice(0, limit) } : o;
+  const slim = (arr, fields, bodyLimit) =>
+    arr.map((o) => {
+      const picked = Object.fromEntries(fields.map((f) => [f, o[f]]));
+      return bodyLimit ? truncateBody(picked, bodyLimit) : picked;
+    });
 
-  const MAX_CHARS = 12_000;
-  let prData = JSON.stringify({
+  // Set CAPPED=true in env to enable limits (for Vercel Hobby's 30s timeout constraint)
+  const uncapped = process.env.CAPPED !== "true";
+
+  const prData = JSON.stringify({
     title: pr.title,
-    body: pr.body?.slice(0, 1000),
+    body: pr.body?.slice(0, uncapped ? undefined : 1000),
     state: pr.state,
     draft: pr.draft,
     merged_at: pr.merged_at,
     additions: pr.additions,
     deletions: pr.deletions,
     changed_files: pr.changed_files,
-    files: slim(cap(files, 30), ["filename", "status", "additions", "deletions"]),
-    reviews: slim(cap(reviews, 20), ["user", "state", "body", "submitted_at"]),
+    files: slim(uncapped ? files : cap(files, 20), ["filename", "status", "additions", "deletions"]),
+    reviews: slim(uncapped ? reviews : cap(reviews, 10), ["user", "state", "body", "submitted_at"], uncapped ? undefined : 300),
     // in_reply_to_id lets Claude reconstruct threads
-    review_comments: slim(cap(reviewComments, 40), ["id", "in_reply_to_id", "path", "user", "body", "created_at"]),
-    issue_comments: slim(cap(comments, 20), ["user", "body", "created_at"]),
+    review_comments: slim(uncapped ? reviewComments : cap(reviewComments, 20), ["id", "in_reply_to_id", "path", "user", "body", "created_at"], uncapped ? undefined : 300),
+    issue_comments: slim(uncapped ? comments : cap(comments, 10), ["user", "body", "created_at"], uncapped ? undefined : 300),
   });
-  if (prData.length > MAX_CHARS) prData = prData.slice(0, MAX_CHARS);
 
   const abort = new AbortController();
   const abortTimer = setTimeout(() => abort.abort(), 25_000);
@@ -204,8 +209,8 @@ Do NOT include any text before the first section or after the last.
 ---
 
 *Discussion Summary*
-For each thread or topic: one line with resolution status.
-Format: - **[Topic]** _(raised by @user)_ — **[Resolved|Addressed|Withdrawn|Open|Merged open]** — summary.
+For each thread or topic: one or two lines with resolution status and summary of the main points of debate and decisions.
+Format: - **[Topic]** _(raised by @user)_ — **[Resolved|Addressed|Withdrawn|Open|Merged open]** — summary, main points of debate and decisions.
 End with 1–2 sentences on overall tone.
 
 ---
