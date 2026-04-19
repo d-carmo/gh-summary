@@ -4,10 +4,28 @@
 
 A Slack slash command that fetches a GitHub PR's metadata, CI status, and discussion thread, then produces an AI-powered summary using Claude.
 
+(I've also included a skill with the same goal - you can find it under ./skills).
+
 ```
 /gh-summary https://github.com/owner/repo/pull/42
 ```
 
+
+---
+
+## Contents
+
+- [Architecture](#architecture)
+- [What the Bot Returns](#what-the-bot-returns)
+- [Prerequisites](#prerequisites)
+- [Setup Guide](#setup-guide)
+- [Local Development](#local-development)
+- [Security](#security)
+- [Cost Estimate](#cost-estimate)
+- [Troubleshooting](#troubleshooting)
+- [File Structure](#file-structure)
+- [Known limitations](#known-limitations)
+- [Extending the Bot](#extending-the-bot)
 
 ---
 
@@ -242,12 +260,17 @@ gh-summary/
 
 ---
 
+## Known limitations
+
+ - **Use of Vercel's free tier** - by using Vercel's free tier (Hobby), we are limited with a max timeout of 30s. This can be a problem for bigger PRs. That's why we set a timeout of 25s while interacting with Claude - to ensure a response always arrives. When using it in production environments, we may want to remove this timeout.
+ - **Claude max block size input** - it seems that Claude's max input size is capped at 12000. For longer PRs, and in production environments, we will want to split input data into several under-12000 blocks. This is not done here because it will also increase the response time (and I was constantly hitting the timeout with this in place).
+
+---
+
 ## Extending the Bot
 
 Some ideas if you want to go further:
 
-- **Inline code review comments** — fetch `/pulls/:number/comments` (review comments on specific lines) and include them in the Claude prompt
 - **PR labels / milestones** — already in the PR API response, just add them to the Block Kit blocks
 - **`/gh-summary-team` command** — list all open PRs for a repo needing review
 - **Caching** — store summaries in Vercel KV to avoid re-fetching unchanged PRs
-- **Webhooks** — instead of slash commands, trigger summaries automatically when a PR is opened or merged

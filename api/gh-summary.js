@@ -128,43 +128,52 @@ async function gh(path, retries = 3) {
 // ── Claude AI summary ─────────────────────────────────────────────────────────
 
 async function summarizeWithClaude(pr, files, comments, reviews, reviewComments) {
+  const aiMaxTokens = 1200;
   const errorSection = [{ title: null, text: "_Could not generate AI summary._" }];
 
-  // Trim large arrays to stay within token budget, keeping the most relevant fields
   const slim = (arr, fields) =>
     arr.map((o) => Object.fromEntries(fields.map((f) => [f, o[f]])));
 
-  const prData = JSON.stringify({
+  const cap = (arr, n) => (arr.length > n ? arr.slice(-n) : arr);
+
+  const MAX_CHARS = 12_000;
+  let prData = JSON.stringify({
     title: pr.title,
-    body: pr.body,
+    body: pr.body?.slice(0, 1000),
     state: pr.state,
     draft: pr.draft,
     merged_at: pr.merged_at,
     additions: pr.additions,
     deletions: pr.deletions,
     changed_files: pr.changed_files,
-    files: slim(files, ["filename", "status", "additions", "deletions"]),
-    reviews: slim(reviews, ["user", "state", "body", "submitted_at"]),
+    files: slim(cap(files, 30), ["filename", "status", "additions", "deletions"]),
+    reviews: slim(cap(reviews, 20), ["user", "state", "body", "submitted_at"]),
     // in_reply_to_id lets Claude reconstruct threads
-    review_comments: slim(reviewComments, ["id", "in_reply_to_id", "path", "user", "body", "created_at"]),
-    issue_comments: slim(comments, ["user", "body", "created_at"]),
+    review_comments: slim(cap(reviewComments, 40), ["id", "in_reply_to_id", "path", "user", "body", "created_at"]),
+    issue_comments: slim(cap(comments, 20), ["user", "body", "created_at"]),
   });
+  if (prData.length > MAX_CHARS) prData = prData.slice(0, MAX_CHARS);
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 900,
-      messages: [
-        {
-          role: "user",
-          content: `You are summarizing a GitHub PR for a Slack message. Use Slack mrkdwn (*bold*, _italic_, • bullets). Be concise.
+  const abort = new AbortController();
+  const abortTimer = setTimeout(() => abort.abort(), 25_000);
 
+  let res;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: abort.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: aiMaxTokens,
+        messages: [
+          {
+            role: "user",
+            content: `You are a Lead Software Engineer summarizing a GitHub PR to another engineer. This will be shared through Slack. Use Slack mrkdwn (*bold*, _italic_, • bullets) and be concise.
 
 Before synthesising, explicitly map every review comment thread and issue comment:
 
@@ -174,26 +183,17 @@ For **inline review comments** ('/pulls/{pr_number}/comments'), group by 'in_rep
 - **Resolution status** — one of:
   - 'Resolved' — thread was explicitly marked resolved, or the author confirmed the fix was made
   - 'Addressed' — a reply indicates the concern was acted on, but the thread was not formally resolved
-  - 'Withdrawn'— the reviewer retracted the concern or said it was a nit/optional
+  - 'Withdrawn' — the reviewer retracted the concern or said it was a nit/optional
   - 'Open' — no reply from the author, or the concern is still being debated
   - 'Merged open' — PR was merged with this thread still unresolved (flag this prominently)
-- **Summary** — one sentence on what was raised and what the outcome was
+- **Summary** — one to two sentences on what was raised, the main points of debate and what the outcome was.
 
-For **issue-level comments** ('/issues/{pr_number}/comments'), summarise each distinct topic raised and its current standing.
-
-Before writting, internally answer: **Discussion** — Were significant concerns raised? Contentious or smooth? Any unresolved or merged-open threads?
+For **issue-level comments** ('/issues/{pr_number}/comments'), summarise each distinct topic raised, main debate points and its current standing.
 
 This thread map drives the Discussion Summary section. Do not skip it even if the PR has many comments — condense but cover all threads.
 
-PR data (JSON — includes files, reviews, review_comments with in_reply_to_id for thread reconstruction, and issue_comments):
+PR data (JSON):
 ${prData}
-
-[For each distinct thread or topic raised in reviews and comments, give a one-line entry with its resolution status. Format:
-
-- **[Topic/concern]** _(raised by @reviewer)_ — **[Resolved | Addressed | Withdrawn | Open | Merged open]** — brief outcome
-- ...
-
-After the thread list, add 1–2 sentences on the overall tone: was review smooth or contentious? Were there any substantive design debates? If no meaningful discussion occurred, say so explicitly.]
 
 Write exactly 3 sections separated by a line containing only "---".
 Do NOT include any text before the first section or after the last.
@@ -204,17 +204,26 @@ Do NOT include any text before the first section or after the last.
 ---
 
 *Discussion Summary*
-
+For each thread or topic: one line with resolution status.
+Format: - **[Topic]** _(raised by @user)_ — **[Resolved|Addressed|Withdrawn|Open|Merged open]** — summary.
+End with 1–2 sentences on overall tone.
 
 ---
 
 *What Changed*
 1–2 sentences on the functional/behavioural change (non-technical).
 Then bullet points of key technical changes grouped by area, with file names where helpful.`,
-        },
-      ],
-    }),
-  });
+          },
+        ],
+      }),
+    });
+  } catch (err) {
+    clearTimeout(abortTimer);
+    if (err.name === "AbortError") console.error("Claude API timed out");
+    else console.error("Claude API fetch error:", err);
+    return errorSection;
+  }
+  clearTimeout(abortTimer);
 
   if (!res.ok) {
     const err = await res.text();
@@ -226,7 +235,6 @@ Then bullet points of key technical changes grouped by area, with file names whe
   const raw = data.content?.[0]?.text;
   if (!raw) return errorSection;
 
-  // Split on "---" section dividers and map to {title, text} objects
   return raw.split(/\n---\n/).map((chunk) => {
     const trimmed = chunk.trim();
     const titleMatch = trimmed.match(/^\*(.+?)\*/);
@@ -290,13 +298,9 @@ function buildSlackBlocks(pr, checkRuns, summaryBlocks) {
       text: { type: "mrkdwn", text: `*CI Status*\n${ci}` },
     },
     { type: "divider" },
-    ...summaryBlocks.map(({ title, text }) => ({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: title ? `*${title}*\n${text}` : text,
-      },
-    })),
+    ...summaryBlocks.flatMap(({ title, text }) =>
+      splitIntoBlocks(title ? `*${title}*\n${text}` : text)
+    ),
     {
       type: "actions",
       elements: [
@@ -350,6 +354,33 @@ function formatReviewers(pr) {
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
+
+function splitIntoBlocks(text, limit = 2900) {
+  const blocks = [];
+  const lines = text.split("\n");
+  let chunk = "";
+
+  for (const line of lines) {
+    const candidate = chunk ? `${chunk}\n${line}` : line;
+    if (candidate.length > limit) {
+      if (chunk) blocks.push(chunk);
+      // A single line longer than limit must be hard-split
+      if (line.length > limit) {
+        for (let i = 0; i < line.length; i += limit) {
+          blocks.push(line.slice(i, i + limit));
+        }
+        chunk = "";
+      } else {
+        chunk = line;
+      }
+    } else {
+      chunk = candidate;
+    }
+  }
+  if (chunk) blocks.push(chunk);
+
+  return blocks.map((t) => ({ type: "section", text: { type: "mrkdwn", text: t } }));
+}
 
 async function postToSlack(url, payload) {
   await fetch(url, {
