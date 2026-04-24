@@ -6,6 +6,8 @@ A Slack slash command that fetches a GitHub PR's metadata, CI status, and discus
 
 (I've also included a skill with the same goal - you can find it under ./skills).
 
+For another in this series of integration, have a look at [The Coroner](https://github.com/d-carmo/the_coroner) - a tool to generate post-mortems from a slack channel. 
+
 ```
 /gh-summary https://github.com/owner/repo/pull/42
 ```
