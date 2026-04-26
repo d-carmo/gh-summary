@@ -9,3 +9,6 @@
 # Node
 node_modules/
 npm-debug.log*
+
+# Test related
+coverage/
