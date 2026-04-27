@@ -109,7 +109,9 @@ async function gh(path, retries = 3) {
       const res = await fetch(url, opts);
       if (!res.ok) {
         const body = await res.text();
-        throw new Error(`GitHub API ${res.status} on ${path}: ${body}`);
+        // Sanitize error message: only log status and path, never full response bodies
+        const sanitizedBody = body.length > 100 ? `${body.slice(0, 100)}...` : body;
+        throw new Error(`GitHub API ${res.status} on ${path}: ${sanitizedBody}`);
       }
       return res.json();
     } catch (err) {
