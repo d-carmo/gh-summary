@@ -142,7 +142,7 @@ async function summarizeWithClaude(pr, files, comments, reviews, reviewComments)
 
   // Set CAPPED=true in env to enable limits (for Vercel Hobby's 30s timeout constraint)
   const uncapped = process.env.CAPPED !== "true";
-
+  const callTimeout = uncapped ? 300_000 : 25_000;  //timeout -> 5 minutes if uncapped, 25 secconds if capped.
   const prData = JSON.stringify({
     title: pr.title,
     body: pr.body?.slice(0, uncapped ? undefined : 1000),
@@ -160,7 +160,7 @@ async function summarizeWithClaude(pr, files, comments, reviews, reviewComments)
   });
 
   const abort = new AbortController();
-  const abortTimer = setTimeout(() => abort.abort(), 25_000);
+  const abortTimer = setTimeout(() => abort.abort(), callTimeout);
 
   let res;
   try {
