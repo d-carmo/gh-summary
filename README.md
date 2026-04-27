@@ -278,5 +278,5 @@ gh-summary/
 Some ideas if you want to go further:
 
 - **PR labels / milestones** — already in the PR API response, just add them to the Block Kit blocks
-- **`/gh-summary-team` command** — list all open PRs for a repo needing review
+- **Support for Vercel alternatives** - Adding support for n8n or lambda functions, ideally in a modularized way
 - **Caching** — store summaries in Vercel KV to avoid re-fetching unchanged PRs
