@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: gh-summary Lambda function
+
+Resources:
+  GhSummaryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../
+      Handler: api/gh-summary.handler
+      Runtime: nodejs20.x
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          PROVIDER: aws
+          SECRET_NAME:
+            Ref: SecretName
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: GhSummaryApi
+            Path: /gh-summary
+            Method: POST
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                Fn::Sub: arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretName}*
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                Fn::Sub: arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-GhSummaryFunction-*
+
+  GhSummaryApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Cors:
+        AllowMethods: "'POST'"
+        AllowHeaders: "'Content-Type,X-Slack-Signature,X-Slack-Request-Timestamp'"
+        AllowOrigin: "'*'"
+
+Parameters:
+  SecretName:
+    Type: String
+    Default: gh-summary/secrets
+    Description: Name of the secret in AWS Secrets Manager
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway URL
+    Value:
+      Fn::Sub: https://${GhSummaryApi}.execute-api.${AWS::Region}.amazonaws.com/prod/gh-summary
