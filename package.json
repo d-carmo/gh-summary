@@ -12,7 +12,7 @@
     "deploy": "[ -f .env ] && PROVIDER=$(grep '^PROVIDER=' .env | cut -d'=' -f2) && if [ \"$PROVIDER\" = \"aws\" ]; then npm run deploy:aws; elif [ \"$PROVIDER\" = \"vercel\" ] || [ -z \"$PROVIDER\" ]; then npm run deploy:vercel; else echo 'Unknown PROVIDER=\"$PROVIDER\" in .env. Use \"vercel\" or \"aws\".'; fi",
     "deploy:vercel": "vercel deploy --prod",
     "deploy:aws": "sam build && sam deploy --stack-name gh-summary-stack",
-    "lint": "node --check api/gh-summary.js && node --check 'src/**/*.js'",
+    "lint": "find src -name '*.js' -exec node --check {} \\; && node --check api/gh-summary.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage"
