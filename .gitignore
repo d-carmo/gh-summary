@@ -12,3 +12,7 @@ npm-debug.log*
 
 # Test related
 coverage/
+
+# Aws
+.aws-sam
+

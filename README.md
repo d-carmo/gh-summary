@@ -40,21 +40,28 @@ User (Slack)
 Slack Platform ──────────────────────────────────────────────┐
     │  HTTP POST (signed)                                    │
     ▼                                                        │
-Vercel Serverless Function  (api/gh-summary.js)              │
-    │  1. Verify Slack signature (HMAC-SHA256)               │
-    │  2. Respond HTTP 200 immediately  ─────────────────────┘
-    │  3. Async: fetch data + summarize        ← acknowledgement
-    │
-    ├──► GitHub REST API  (parallel)
-    │       • GET /pulls/:number              (PR metadata)
-    │       • GET /issues/:number/comments    (discussion)
-    │       • GET /pulls/:number/reviews      (code reviews)
-    │       • GET /pulls/:number/comments     (review comments)
-    │       • GET /pulls/:number/files        (changed files)
-    │
-    ├──► GitHub REST API  (sequential — needs PR head SHA)
-    │       • GET /commits/:sha/check-runs    (CI status)
-    │
+Provider Adapter Layer                                       │
+    ├──► Vercel: waitUntil() keeps function alive             │
+    └──► AWS Lambda: Fire-and-forget (CloudWatch logs)        │
+    │                                                          │
+    ▼                                                          │
+Core Business Logic (src/)                                   │
+    ├──► src/clients/github.js   — GitHub API client          │
+    ├──► src/clients/anthropic.js — Claude AI summarization   │
+    ├──► src/clients/slack.js     — Signature verification    │
+    ├──► src/blocks/metadata.js   — CI, reviewers, metadata    │
+    └──► src/blocks/summary.js    — Text splitting             │
+    │                                                          │
+    ├──► GitHub REST API  (parallel)                          │
+    │       • GET /pulls/:number              (PR metadata)   │
+    │       • GET /issues/:number/comments    (discussion)    │
+    │       • GET /pulls/:number/reviews      (code reviews)  │
+    │       • GET /pulls/:number/comments     (review comments)│
+    │       • GET /pulls/:number/files        (changed files) │
+    │                                                          │
+    ├──► GitHub REST API  (sequential — needs PR head SHA)    │
+    │       • GET /commits/:sha/check-runs    (CI status)     │
+    │                                                          │
     └──► Anthropic Messages API  (after all GitHub data is ready)
             • claude-sonnet-4-6 (discussion → structured summary)
                 │
@@ -62,13 +69,13 @@ Vercel Serverless Function  (api/gh-summary.js)              │
          POST response_url → Slack (formatted Block Kit message)
 ```
 
-> Full diagram: [docs/architecture.svg](./docs/architecture.svg)
-
 ### Why a server at all?
 
 Slack slash commands work by POSTing to **your** URL. There is no way to point a slash command directly at GitHub or any other third-party API — Slack needs an endpoint it can reach that can verify the request, hold your credentials, and format the response.
 
-Vercel's free Hobby tier is sufficient; this function typically runs in under 5 seconds.
+Choose your provider:
+- **Vercel Hobby (free)** — ~1s function time, simplest setup
+- **AWS Lambda** — Pay-per-use, scales with traffic, no cold start limits
 
 ---
 
@@ -92,50 +99,29 @@ Each `/gh-summary` invocation posts a message with:
 | Requirement | Where to get it |
 |---|---|
 | Node.js ≥ 18 | [nodejs.org](https://nodejs.org) |
-| Vercel account (free) | [vercel.com](https://vercel.com) |
+| Vercel account (free) **or** AWS account | [vercel.com](https://vercel.com) / [aws.amazon.com](https://aws.amazon.com) |
 | Slack workspace (admin) | Your workspace settings |
 | GitHub account | [github.com/settings/tokens](https://github.com/settings/tokens) |
 | Anthropic account | [console.anthropic.com](https://console.anthropic.com) |
 
+### Choosing a Provider
+
+**Vercel** — simplest, free tier sufficient for most use cases.  
+**AWS Lambda** — pay-per-use, better for high-traffic or cost-sensitive deployments.
+
+See the **Deployment Options** section below for setup instructions.
+
 ---
 
-## Setup Guide
+## Deployment Options
 
-### Step 1 — Create a Slack App
-
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
-2. Name it `gh-summary`, choose your workspace
-3. Under **Slash Commands** → **Create New Command**:
-   - Command: `/gh-summary`
-   - Request URL: *(fill in after Step 3)*
-   - Short description: `Summarize a GitHub PR`
-   - Usage hint: `https://github.com/owner/repo/pull/123`
-4. Under **OAuth & Permissions** → **Scopes** → **Bot Token Scopes** → add `chat:write`
-5. Click **Install to Workspace** and copy the **Bot User OAuth Token** (`xoxb-…`)
-6. Under **Basic Information** → copy the **Signing Secret**
-
-### Step 2 — Get a GitHub Token
-
-1. Go to [github.com/settings/tokens](https://github.com/settings/tokens) → **Generate new token (classic)**
-2. Name it `gh-summary-bot`
-3. Select scopes:
-   - `public_repo` — for public repositories only
-   - `repo` — if you need access to private repositories
-4. Click **Generate token** and copy it
-
-### Step 3 — Get an Anthropic API Key
-
-1. Go to [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
-2. Click **Create Key**, name it `gh-summary`
-3. Copy the key (`sk-ant-…`)
-
-### Step 4 — Deploy to Vercel
+### Option 1: Deploy to Vercel (Recommended for most users)
 
 ```bash
 # Clone / enter the project
 cd gh-summary
 
-# Install Vercel CLI
+# Install dependencies
 npm install
 
 # Log in to Vercel
@@ -147,26 +133,63 @@ npx vercel deploy --prod
 
 Copy the deployment URL, e.g. `https://gh-summary-xxx.vercel.app`
 
-### Step 5 — Set Environment Variables
+### Option 2: Deploy to AWS Lambda + API Gateway
 
-In the Vercel dashboard → your project → **Settings** → **Environment Variables**, add:
+1. **Install SAM CLI**: [docs.aws.amazon.com/sam/latest/cli/installation.html](https://docs.aws.amazon.com/sam/latest/cli/installation.html)
+   
+   ```bash
+   pip install aws-sam-cli
+   sam --version
+   ```
+
+2. **Create secrets in AWS Secrets Manager**:
+   
+   ```bash
+   aws secretsmanager create-secret \
+     --name gh-summary/secrets \
+     --secret-string '{
+       "SLACK_SIGNING_SECRET": "your-slack-signing-secret",
+       "GITHUB_TOKEN": "your-github-token",
+       "ANTHROPIC_API_KEY": "your-anthropic-api-key"
+     }'
+   ```
+
+3. **Deploy with SAM**:
+   
+   ```bash
+   sam build
+   sam deploy \
+     --stack-name gh-summary-stack \
+     --template-file aws/sam-template.yaml \
+     --capabilities CAPABILITY_IAM
+   ```
+
+4. **Get your API Gateway URL** from the deployment output, e.g.:
+   
+   ```
+   https://abcdefgh123.execute-api.us-east-1.amazonaws.com/prod/gh-summary
+   ```
+
+### Step 5 — Set Environment Variables (Vercel Only)
+
+In your Vercel project dashboard, add:
 
 | Variable | Value |
 |---|---|
-| `SLACK_SIGNING_SECRET` | From Step 1 |
-| `SLACK_BOT_TOKEN` | From Step 1 |
-| `GITHUB_TOKEN` | From Step 2 |
-| `ANTHROPIC_API_KEY` | From Step 3 |
-| `CAPPED` | _(optional)_ Set to `true` on Vercel Hobby to enable input limits and stay within the 30s timeout (Free tier friendly)|
-| `MAX_TOKENS` | _(optional)_ Max tokens for Claude's response. Defaults to `1000`. Increase for longer summaries on plans with higher timeouts |
+| `SLACK_SIGNING_SECRET` | From Slack App settings |
+| `GITHUB_TOKEN` | From GitHub token generator |
+| `ANTHROPIC_API_KEY` | From Anthropic console |
+| `PROVIDER` | `vercel` (default) |
+| `CAPPED` | _(optional)_ Set to `true` on Vercel Hobby for timeout safety |
+| `MAX_TOKENS` | _(optional)_ Max tokens for Claude's response. Defaults to `1000` |
 
-Or via CLI:
+Or via CLI (Vercel):
 
 ```bash
 npx vercel env add SLACK_SIGNING_SECRET
-npx vercel env add SLACK_BOT_TOKEN
 npx vercel env add GITHUB_TOKEN
 npx vercel env add ANTHROPIC_API_KEY
+npx vercel env add PROVIDER
 npx vercel env add CAPPED
 npx vercel env add MAX_TOKENS
 
@@ -177,7 +200,7 @@ npx vercel deploy --prod
 ### Step 6 — Wire Up Slack
 
 1. Go back to your Slack App → **Slash Commands** → edit `/gh-summary`
-2. Set Request URL to: `https://your-project.vercel.app/api/gh-summary`
+2. Set Request URL to: `https://your-project.vercel.app/api/gh-summary` (Vercel) or `https://your-api-gateway-url/api/gh-summary` (AWS)
 3. Save
 
 ### Step 7 — Test It
@@ -196,12 +219,12 @@ In any Slack channel:
 # Copy env file and fill in your values
 cp .env.example .env
 
-# Start local Vercel dev server
+# Start local Vercel dev server (or use Lambda locally with SAM)
 npm run dev
 # → Listening at http://localhost:3000
 
-# In another terminal, run the smoke test
-node scripts/test-local.js https://github.com/owner/repo/pull/123
+# Or test with AWS SAM locally
+sam local invoke GhSummaryFunction --event event.json
 ```
 
 The test script generates a valid Slack HMAC signature so the local function accepts it.
@@ -212,25 +235,27 @@ The test script generates a valid Slack HMAC signature so the local function acc
 
 - **Signature verification** — every request is validated with HMAC-SHA256 against your `SLACK_SIGNING_SECRET`. Forged or replayed requests are rejected.
 - **Replay protection** — requests older than 5 minutes are rejected.
-- **No credential storage** — API keys live only in Vercel's encrypted environment variables, never in code.
+- **No credential storage** — API keys live only in environment variables (Vercel encrypted env vars or AWS Lambda config), never in code.
 - **GitHub token scope** — use `public_repo` unless you need private repo access.
 
 ---
 
 ## Cost Estimate
 
-| Service | Usage | Cost |
+| Service | Vercel Hobby | AWS Lambda (estimated) |
 |---|---|---|
-| Vercel | ~1s function, hobby tier | **Free** |
-| GitHub API | 4 requests/invocation | **Free** (5000 req/hr limit) |
-| Anthropic | ~800 input + 600 output tokens | ~$0.003 per summary |
+| **Hosting** | Free | ~$0.20/month at 100 summaries/day |
+| **GitHub API** | Free | Free (5000 req/hr limit) |
+| **Anthropic AI** | ~$0.003/summary | Same (~$0.003/summary) |
+
+*AWS Lambda pricing: $0.400 per 1M requests + $0.0000166667 per GB-second compute.*
 
 ---
 
 ## Troubleshooting
 
 **Bot doesn't respond**
-- Check Vercel function logs: `npx vercel logs`
+- Check provider logs: `npx vercel logs` (Vercel) or AWS CloudWatch Logs (Lambda)
 - Ensure all 4 env vars are set and you redeployed after adding them
 
 **"Unauthorized" error**
@@ -243,7 +268,11 @@ The test script generates a valid Slack HMAC signature so the local function acc
 - Check your `ANTHROPIC_API_KEY` is valid and has credits
 
 **Slack says "operation_timeout"**
-- The function took > 3s to acknowledge. This shouldn't happen — if it does, check Vercel cold start times or upgrade to Vercel Pro for reserved functions.
+- The function took > 3s to acknowledge. This shouldn't happen — if it does, check provider cold start times or upgrade plan (Vercel Pro) / increase timeout (Lambda).
+
+**AWS Lambda-specific**
+- Check CloudWatch Logs for error messages
+- Ensure API Gateway is properly configured with CORS headers
 
 ---
 
@@ -252,24 +281,58 @@ The test script generates a valid Slack HMAC signature so the local function acc
 ```
 gh-summary/
 ├── api/
-│   └── gh-summary.js     # The entire bot (~200 lines)
+│   └── gh-summary.js          # Entry point (uses adapter pattern)
+├── src/                        # Provider-agnostic core logic
+│   ├── adapters/              # Platform-specific implementations
+│   │   ├── index.js           # Factory function (createAdapter)
+│   │   ├── vercel.js          # Vercel adapter with waitUntil()
+│   │   └── lambda.js          # AWS Lambda adapter (fire-and-forget)
+│   ├── clients/               # API integrations
+│   │   ├── github.js          # GitHub REST client + URL parsing
+│   │   ├── anthropic.js       # Claude AI summarization logic
+│   │   └── slack.js           # Signature verification helpers
+│   └── blocks/                # Block Kit builders
+│       ├── metadata.js        # CI status, reviewers, PR metadata
+│       └── summary.js         # Text splitting into Slack blocks
 ├── docs/
-│   ├── README.md         # This file
-│   └── architecture.svg  # System diagram
+│   ├── README.md              # This file
+│   └── architecture.svg       # System diagram
 ├── scripts/
-│   └── test-local.js     # Local smoke test
-├── .env.example          # Environment variable template
+│   └── test-local.js          # Local smoke test
+├── aws/                       # AWS deployment (optional)
+│   ├── sam-template.yaml      # SAM template for Lambda + API Gateway
+│   └── lambda-function.zip    # Deployed function bundle
+├── .env.example               # Environment variable template (includes PROVIDER)
 ├── .gitignore
 ├── package.json
-└── vercel.json           # Vercel configuration
+└── vercel.json                # Vercel configuration
 ```
+
+---
+
+## Deployment Options Summary
+
+| Feature | Vercel | AWS Lambda |
+|---|---|---|
+| **Setup complexity** | ⭐ Simplest | ⭐⭐ Moderate |
+| **Cost (low traffic)** | Free | ~$0.20/month |
+| **Cold starts** | < 1s typical | 1-3s first request |
+| **Timeout handling** | `waitUntil()` built-in | Fire-and-forget |
+| **Switching providers** | Change `.env` only | Change `.env` only |
+
+The modular architecture means adding a new provider (GCP, n8n, etc.) is as simple as:
+1. Creating `src/adapters/gcp.js` implementing the same interface
+2. Registering it in `src/adapters/index.js`  
+3. Setting `PROVIDER=gcp` in `.env`
+
+Done! 🎉
 
 ---
 
 ## Known limitations
 
- - **Use of Vercel's free tier** — Vercel Hobby has a 30s max function duration. For large PRs, Claude can take longer than that, causing the response to never reach Slack. Set `CAPPED=true` to enforce input limits (fewer items, shorter bodies) and a 25s Claude timeout, trading summary completeness for reliability.
- - **Input caps when `CAPPED=true`** — Claude's actual context window is 200K tokens, but `CAPPED=true` limits the PR payload to keep response time within 30s: max 20 files, 10 reviews, 20 review comments, 10 issue comments, and body fields truncated to 300 chars. On a paid Vercel plan, omit `CAPPED` (or set it to `false`) to send the full data. If doing some development or non-production testing, you may choose to use this option as  long as you don't mind a capped analysis.
+- **Vercel Hobby timeout** — Vercel Hobby has a 30s max function duration. For large PRs, Claude can take longer than that, causing the response to never reach Slack. Set `CAPPED=true` to enforce input limits and stay within the 30s timeout (Free tier friendly). On paid plans or AWS Lambda, omit `CAPPED` (or set it to `false`) to send full data.
+- **AWS Lambda cold starts** — First request after deployment may take 1-3 seconds due to initialization. Subsequent requests are faster (< 200ms typically).
 
 ---
 
@@ -278,5 +341,31 @@ gh-summary/
 Some ideas if you want to go further:
 
 - **PR labels / milestones** — already in the PR API response, just add them to the Block Kit blocks
+
 - **Support for Vercel alternatives** - Adding support for n8n or lambda functions, ideally in a modularized way
-- **Caching** — store summaries in Vercel KV to avoid re-fetching unchanged PRs
+
+### Adding a New Provider (e.g., GCP, n8n)
+
+The modular architecture makes this straightforward:
+
+1. Create `src/adapters/gcp.js` implementing the same interface as `vercel.js` and `lambda.js`:
+   ```js
+   export class GCPAdapter {
+     async acknowledge(responseUrl, payload) { /* ... */ }
+     async processPR(prUrl, responseUrl) { /* fire-and-forget */ }
+     async postToSlack(responseUrl, payload) { /* ... */ }
+   }
+   ```
+
+2. Register it in `src/adapters/index.js`:
+   ```js
+   export function createAdapter(provider) {
+     if (provider === 'gcp') return new GCPAdapter();
+     // ... existing providers
+   }
+   ```
+
+3. Set `PROVIDER=gcp` in your `.env` file and redeploy.
+
+That's it! The core business logic (`src/clients/`) remains unchanged.
+

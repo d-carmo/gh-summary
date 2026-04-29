@@ -1,0 +1,13 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "gh-summary-stack"
+resolve_s3 = true
+s3_prefix = "gh-summary-stack"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+image_repositories = []
+
+[default.global.parameters]
+region = "us-east-1"
+template_file = "aws/sam-template.yaml"

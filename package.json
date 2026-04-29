@@ -8,8 +8,11 @@
   },
   "scripts": {
     "start_local": "vercel dev",
-    "deploy": "vercel deploy --prod",
-    "lint": "node --check api/gh-summary.js",
+    "dev": "vercel dev",
+    "deploy": "[ -f .env ] && PROVIDER=$(grep '^PROVIDER=' .env | cut -d'=' -f2) && if [ \"$PROVIDER\" = \"aws\" ]; then npm run deploy:aws; elif [ \"$PROVIDER\" = \"vercel\" ] || [ -z \"$PROVIDER\" ]; then npm run deploy:vercel; else echo 'Unknown PROVIDER=\"$PROVIDER\" in .env. Use \"vercel\" or \"aws\".'; fi",
+    "deploy:vercel": "vercel deploy --prod",
+    "deploy:aws": "sam build && sam deploy --stack-name gh-summary-stack",
+    "lint": "node --check api/gh-summary.js && node --check 'src/**/*.js'",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage"
@@ -28,6 +31,8 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-lambda": "^3.400.0",
+    "@aws-sdk/client-secrets-manager": "^3.400.0",
     "@vercel/functions": "^3.4.3"
   }
 }
